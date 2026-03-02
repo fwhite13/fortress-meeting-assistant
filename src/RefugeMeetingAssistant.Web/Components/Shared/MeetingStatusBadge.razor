@@ -1,0 +1,41 @@
+@* MeetingStatusBadge.razor - Status indicator with MudBlazor chip *@
+
+<MudChip T="string" Size="Size.Small" Color="@GetChipColor()" Variant="Variant.Filled"
+         Style="@GetExtraStyle()">
+    @GetDisplayText()
+</MudChip>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Status { get; set; } = "";
+
+    private Color GetChipColor() => Status?.ToLower() switch
+    {
+        "pending" => Color.Default,
+        "joining" or "recording" => Color.Error,
+        "processing" or "transcribing" or "summarizing" => Color.Warning,
+        "completed" => Color.Success,
+        "error" or "failed" => Color.Dark,
+        _ => Color.Default
+    };
+
+    private string GetExtraStyle() => Status?.ToLower() switch
+    {
+        "joining" or "recording" => "animation: pulse-badge 2s infinite;",
+        _ => ""
+    };
+
+    private string GetDisplayText() => Status?.ToLower() switch
+    {
+        "pending" => "Pending",
+        "joining" => "🔴 Joining",
+        "recording" => "🔴 Recording",
+        "processing" => "🟡 Processing",
+        "transcribing" => "🟡 Transcribing",
+        "summarizing" => "🟡 Summarizing",
+        "completed" => "🟢 Complete",
+        "error" => "⚫ Failed",
+        "failed" => "⚫ Failed",
+        _ => Status ?? "Unknown"
+    };
+}

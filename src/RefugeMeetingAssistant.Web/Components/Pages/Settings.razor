@@ -1,0 +1,289 @@
+@page "/settings"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject MeetingApiClient Api
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<PageTitle>Bot Settings — FIRM</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="py-4">
+    <MudBreadcrumbs Items="_breadcrumbs" Class="mb-3 pa-0" Style="background: transparent;" />
+
+    <MudText Typo="Typo.h4" Class="mb-1">
+        <MudIcon Icon="@Icons.Material.Filled.Settings" Class="mr-2" Style="vertical-align: middle;" />Bot Settings
+    </MudText>
+    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-6">
+        Configure your meeting bot's display name and summary preferences
+    </MudText>
+
+    @if (isLoading)
+    {
+        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="60px" Style="margin-bottom: 12px; border-radius: var(--radius-md);" />
+        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="40px" Width="50%" Style="margin-bottom: 8px;" />
+        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="40px" Width="70%" />
+    }
+    else if (config == null)
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" ShowCloseIcon="false"
+                  Style="border-left: 4px solid var(--color-warning); background: var(--color-warning-bg); border-radius: var(--radius-md); margin-bottom: var(--space-4);">
+            @(string.IsNullOrEmpty(_loadError) ? "Unable to load bot configuration." : _loadError)
+        </MudAlert>
+        <MudButton Variant="Variant.Outlined" OnClick="RetryLoad"
+                   Style="border-color: var(--color-border);">
+            Retry
+        </MudButton>
+    }
+    else
+    {
+        <MudCard Elevation="1">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">
+                        <MudIcon Icon="@Icons.Material.Filled.SmartToy" Class="mr-2" Style="vertical-align: middle;" />Bot Configuration
+                    </MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                @* Bot Display Name *@
+                <MudTextField @bind-Value="config.BotName" Label="Bot Display Name"
+                              Placeholder="e.g., Fred's Notetaker" Variant="Variant.Outlined"
+                              HelperText="This name appears in the meeting participant list"
+                              Counter="50" MaxLength="50" Immediate="true"
+                              Error="@nameError" ErrorText="Bot name is required and must be 50 characters or less."
+                              Class="mb-6" />
+
+                @* Summary Style *@
+                <MudSelect @bind-Value="config.SummaryStyle" Label="Summary Style"
+                           Variant="Variant.Outlined" HelperText="Controls the length and focus of AI-generated meeting summaries"
+                           Class="mb-6">
+                    <MudSelectItem Value="@("brief")">Brief — Short and concise</MudSelectItem>
+                    <MudSelectItem Value="@("standard")">Standard — Balanced detail</MudSelectItem>
+                    <MudSelectItem Value="@("detailed")">Detailed — Comprehensive coverage</MudSelectItem>
+                    <MudSelectItem Value="@("action-oriented")">Action-Oriented — Focus on next steps</MudSelectItem>
+                </MudSelect>
+
+                <MudDivider Class="my-4" />
+
+                @* Include in Summary *@
+                <MudText Typo="Typo.subtitle1" Style="font-weight: 600;" Class="mb-3">
+                    Include in Summary:
+                </MudText>
+
+                <MudSwitch @bind-Value="config.IncludeActionItems" Color="Color.Primary" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" /> Action Items — Extract tasks, owners, and due dates
+                </MudSwitch>
+
+                <MudSwitch @bind-Value="config.IncludeKeyDecisions" Color="Color.Primary" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Flag" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" /> Key Decisions — Important decisions made during the meeting
+                </MudSwitch>
+
+                <MudSwitch @bind-Value="config.IncludeKeyTopics" Color="Color.Primary" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Forum" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" /> Key Topics — Main topics discussed
+                </MudSwitch>
+
+                <MudSwitch @bind-Value="config.IncludeOpenQuestions" Color="Color.Primary" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.HelpOutline" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" /> Open Questions — Unanswered questions or follow-ups needed
+                </MudSwitch>
+            </MudCardContent>
+            <MudCardActions Class="d-flex justify-space-between pa-4">
+                <div>
+                    @if (!string.IsNullOrEmpty(saveMessage))
+                    {
+                        <MudText Typo="Typo.body2" Color="@(saveSuccess ? Color.Success : Color.Error)" Style="font-weight: 600;">
+                            @saveMessage
+                        </MudText>
+                    }
+                </div>
+                <div class="d-flex gap-2">
+                    <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="CancelChanges">
+                        Cancel
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveConfig"
+                               Disabled="@isSaving" StartIcon="@Icons.Material.Filled.Save">
+                        @if (isSaving)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                        }
+                        Save Settings
+                    </MudButton>
+                </div>
+            </MudCardActions>
+        </MudCard>
+    }
+</MudContainer>
+
+@code {
+    private EditableBotConfig? config;
+    private EditableBotConfig? originalConfig;
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string saveMessage = "";
+    private bool saveSuccess;
+    private bool nameError = false;
+    private string? _loadError;
+    private List<BreadcrumbItem> _breadcrumbs = new()
+    {
+        new("Dashboard", href: "/", icon: Icons.Material.Filled.Home),
+        new("Bot Settings", href: null, disabled: true)
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var dto = await Api.GetBotConfigAsync();
+            if (dto != null)
+            {
+                config = new EditableBotConfig
+                {
+                    BotName = dto.BotName,
+                    SummaryStyle = dto.SummaryStyle,
+                    IncludeActionItems = dto.IncludeActionItems,
+                    IncludeKeyDecisions = dto.IncludeKeyDecisions,
+                    IncludeKeyTopics = dto.IncludeKeyTopics,
+                    IncludeOpenQuestions = dto.IncludeOpenQuestions
+                };
+                // Store original for cancel
+                originalConfig = new EditableBotConfig
+                {
+                    BotName = dto.BotName,
+                    SummaryStyle = dto.SummaryStyle,
+                    IncludeActionItems = dto.IncludeActionItems,
+                    IncludeKeyDecisions = dto.IncludeKeyDecisions,
+                    IncludeKeyTopics = dto.IncludeKeyTopics,
+                    IncludeOpenQuestions = dto.IncludeOpenQuestions
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Failed to load settings: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RetryLoad()
+    {
+        isLoading = true;
+        _loadError = null;
+        config = null;
+        StateHasChanged();
+
+        try
+        {
+            var dto = await Api.GetBotConfigAsync();
+            if (dto != null)
+            {
+                config = new EditableBotConfig
+                {
+                    BotName = dto.BotName,
+                    SummaryStyle = dto.SummaryStyle,
+                    IncludeActionItems = dto.IncludeActionItems,
+                    IncludeKeyDecisions = dto.IncludeKeyDecisions,
+                    IncludeKeyTopics = dto.IncludeKeyTopics,
+                    IncludeOpenQuestions = dto.IncludeOpenQuestions
+                };
+                originalConfig = new EditableBotConfig
+                {
+                    BotName = dto.BotName,
+                    SummaryStyle = dto.SummaryStyle,
+                    IncludeActionItems = dto.IncludeActionItems,
+                    IncludeKeyDecisions = dto.IncludeKeyDecisions,
+                    IncludeKeyTopics = dto.IncludeKeyTopics,
+                    IncludeOpenQuestions = dto.IncludeOpenQuestions
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Failed to load settings: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SaveConfig()
+    {
+        if (config == null) return;
+
+        nameError = false;
+        saveMessage = "";
+
+        // Validate
+        if (string.IsNullOrWhiteSpace(config.BotName) || config.BotName.Length > 50)
+        {
+            nameError = true;
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            await Api.UpdateBotConfigAsync(new UpdateBotConfigRequest
+            {
+                BotName = config.BotName.Trim(),
+                SummaryStyle = config.SummaryStyle,
+                IncludeActionItems = config.IncludeActionItems,
+                IncludeKeyDecisions = config.IncludeKeyDecisions,
+                IncludeKeyTopics = config.IncludeKeyTopics,
+                IncludeOpenQuestions = config.IncludeOpenQuestions
+            });
+            Snackbar.Add("Settings saved successfully!", Severity.Success);
+            saveMessage = "✅ Settings saved successfully!";
+            saveSuccess = true;
+
+            // Update original
+            originalConfig = new EditableBotConfig
+            {
+                BotName = config.BotName,
+                SummaryStyle = config.SummaryStyle,
+                IncludeActionItems = config.IncludeActionItems,
+                IncludeKeyDecisions = config.IncludeKeyDecisions,
+                IncludeKeyTopics = config.IncludeKeyTopics,
+                IncludeOpenQuestions = config.IncludeOpenQuestions
+            };
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"❌ Failed to save: {ex.Message}";
+            saveSuccess = false;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void CancelChanges()
+    {
+        if (originalConfig != null && config != null)
+        {
+            config.BotName = originalConfig.BotName;
+            config.SummaryStyle = originalConfig.SummaryStyle;
+            config.IncludeActionItems = originalConfig.IncludeActionItems;
+            config.IncludeKeyDecisions = originalConfig.IncludeKeyDecisions;
+            config.IncludeKeyTopics = originalConfig.IncludeKeyTopics;
+            config.IncludeOpenQuestions = originalConfig.IncludeOpenQuestions;
+        }
+        nameError = false;
+        saveMessage = "";
+        Nav.NavigateTo("/");
+    }
+
+    private class EditableBotConfig
+    {
+        public string BotName { get; set; } = "";
+        public string SummaryStyle { get; set; } = "standard";
+        public bool IncludeActionItems { get; set; } = true;
+        public bool IncludeKeyDecisions { get; set; } = true;
+        public bool IncludeKeyTopics { get; set; } = true;
+        public bool IncludeOpenQuestions { get; set; } = true;
+    }
+}

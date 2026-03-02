@@ -1,0 +1,4 @@
+FROM 742932328420.dkr.ecr.us-east-1.amazonaws.com/fortress-meetings-web:dev-latest
+WORKDIR /app
+COPY src/RefugeMeetingAssistant.Web/publish/ .
+ENTRYPOINT ["dotnet", "RefugeMeetingAssistant.Web.dll"]

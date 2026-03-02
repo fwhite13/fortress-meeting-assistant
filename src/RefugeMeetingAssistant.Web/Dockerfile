@@ -1,0 +1,46 @@
+# Fortress Meeting Assistant — Web + API (combined)
+# Debian workaround — MCR blocked on WSL2 (matching FRED pattern)
+
+# Stage 1: Build using debian + dotnet-install.sh (SDK)
+FROM debian:bookworm-slim AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl libicu72 libssl3 libgssapi-krb5-2 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV DOTNET_ROOT=/usr/share/dotnet
+ENV PATH="$PATH:/usr/share/dotnet"
+ENV DOTNET_NOLOGO=1
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
+
+# Install .NET 8 SDK
+RUN curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/share/dotnet
+
+WORKDIR /src
+COPY ["src/RefugeMeetingAssistant.Web/RefugeMeetingAssistant.Web.csproj", "RefugeMeetingAssistant.Web/"]
+COPY ["src/RefugeMeetingAssistant.Api/RefugeMeetingAssistant.Api.csproj", "RefugeMeetingAssistant.Api/"]
+RUN dotnet restore "RefugeMeetingAssistant.Web/RefugeMeetingAssistant.Web.csproj"
+COPY src/ .
+WORKDIR "/src/RefugeMeetingAssistant.Web"
+RUN dotnet publish "RefugeMeetingAssistant.Web.csproj" -c Release -o /app/publish /p:UseAppHost=false /p:ErrorOnDuplicatePublishOutputFiles=false
+
+# Stage 2: Runtime — debian + aspnetcore runtime only
+FROM debian:bookworm-slim AS final
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl libicu72 libssl3 libgssapi-krb5-2 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV DOTNET_ROOT=/usr/share/dotnet
+ENV PATH="$PATH:/usr/share/dotnet"
+ENV ASPNETCORE_URLS=http://+:8080
+ENV DOTNET_NOLOGO=1
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
+EXPOSE 8080
+
+# Install .NET 8 ASP.NET Core runtime only
+RUN curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --runtime aspnetcore --install-dir /usr/share/dotnet
+
+WORKDIR /app
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "RefugeMeetingAssistant.Web.dll"]

@@ -1,0 +1,108 @@
+/* FIP Shared Navigation Styles */
+
+/* === FIP Sidebar Nav Overrides === */
+.mud-nav-link {
+    padding: 10px 16px !important;
+    height: 40px !important;
+    color: rgba(248, 250, 252, 0.85) !important;
+    font-size: var(--text-sm) !important;
+    font-weight: var(--font-medium) !important;
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 1;
+}
+.mud-nav-link:hover {
+    background: var(--color-sidebar-hover) !important;
+}
+.mud-nav-link.active {
+    background: var(--color-sidebar-active) !important;
+    border-left: 3px solid var(--color-gold) !important;
+    color: var(--color-text-inverse) !important;
+}
+.mud-nav-link.active .mud-nav-link-text,
+.mud-nav-link.active .mud-icon-root {
+    color: var(--color-gold) !important;
+}
+
+/* Sidebar background */
+.mud-drawer {
+    background: var(--color-sidebar-bg) !important;
+}
+
+/* MudCard global radius */
+.mud-card {
+    border-radius: 12px !important;
+}
+
+/* Consistent focus ring */
+.mud-input-root:focus-within {
+    border-color: var(--color-border-focus) !important;
+}
+
+/* AppBar text always white */
+.mud-appbar .mud-typography { color: #ffffff; }
+.mud-appbar .mud-icon-root { color: rgba(255,255,255,0.87); }
+
+/* App switcher menu in AppBar */
+.fip-app-switcher .mud-menu-item:hover { background: #EEF2F7; }
+
+/* FIP drawer footer — flex-based, NOT absolute positioned */
+.fip-drawer-footer {
+    padding: 12px 16px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.5);
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+
+/* === FIP Button Overrides === */
+.mud-button-root.mud-button-filled-primary,
+.mud-button.mud-button-filled-primary {
+    background-color: var(--color-btn-primary-bg) !important;
+    color: var(--color-btn-primary-text) !important;
+    border-radius: var(--radius-md) !important;
+    height: 36px !important;
+    font-size: var(--text-sm) !important;
+    font-weight: var(--font-medium) !important;
+}
+.mud-button-root.mud-button-filled-primary:hover {
+    background-color: var(--color-btn-primary-hover) !important;
+}
+.mud-button-root.mud-button-filled-error {
+    background-color: var(--color-btn-danger-bg) !important;
+    border-radius: var(--radius-md) !important;
+}
+.mud-button-root.mud-button-outlined {
+    border-color: var(--color-border) !important;
+    color: var(--color-btn-secondary-text) !important;
+    border-radius: var(--radius-md) !important;
+    height: 36px !important;
+}
+
+/* === FIP Status Chips === */
+.mud-chip.mud-chip-color-success {
+    background-color: var(--color-success-bg) !important;
+    color: var(--color-success) !important;
+    border-radius: var(--radius-full) !important;
+    font-size: var(--text-xs) !important;
+    font-weight: var(--font-medium) !important;
+}
+.mud-chip.mud-chip-color-warning {
+    background-color: var(--color-warning-bg) !important;
+    color: var(--color-warning) !important;
+    border-radius: var(--radius-full) !important;
+    font-size: var(--text-xs) !important;
+    font-weight: var(--font-medium) !important;
+}
+.mud-chip.mud-chip-color-error {
+    background-color: var(--color-error-bg) !important;
+    color: var(--color-error) !important;
+    border-radius: var(--radius-full) !important;
+    font-size: var(--text-xs) !important;
+}
+.mud-chip.mud-chip-color-info {
+    background-color: var(--color-info-bg) !important;
+    color: var(--color-info) !important;
+    border-radius: var(--radius-full) !important;
+    font-size: var(--text-xs) !important;
+}

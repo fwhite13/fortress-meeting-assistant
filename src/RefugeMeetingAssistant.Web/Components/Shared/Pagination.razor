@@ -1,0 +1,13 @@
+@* Pagination.razor — DEPRECATED: Replaced by MudPagination in Home.razor.
+   Kept as stub to avoid compile errors from any remaining references. *@
+
+@code {
+    [Parameter]
+    public int CurrentPage { get; set; } = 1;
+
+    [Parameter]
+    public int TotalPages { get; set; } = 1;
+
+    [Parameter]
+    public EventCallback<int> OnPageChanged { get; set; }
+}

@@ -1,0 +1,59 @@
+@* MeetingCard.razor - Meeting list item component (kept for backward compatibility, Home.razor now uses MudTable) *@
+
+<MudPaper Class="pa-3 mb-2 cursor-pointer" Elevation="1" Style="border-radius: 8px;" @onclick="NavigateToMeeting">
+    <div class="d-flex justify-space-between align-start">
+        <div class="flex-grow-1">
+            <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">@(Meeting.Title ?? "Untitled Meeting")</MudText>
+            <div class="d-flex flex-wrap gap-2 align-center">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@FormatDate(Meeting.CreatedAt)</MudText>
+                @if (!string.IsNullOrEmpty(Meeting.Platform))
+                {
+                    <MudChip T="string" Size="Size.Small" Color="@GetPlatformColor()">@Meeting.Platform</MudChip>
+                }
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@FormatDuration(Meeting.DurationSeconds)</MudText>
+                @if (Meeting.ParticipantCount > 0)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@Meeting.ParticipantCount participants</MudText>
+                }
+            </div>
+        </div>
+        <div class="ml-3 d-flex flex-column align-end">
+            <MeetingStatusBadge Status="@Meeting.Status" />
+            @if (Meeting.HasSummary)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="mt-1">📝 Summary</MudChip>
+            }
+        </div>
+    </div>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired]
+    public MeetingDto Meeting { get; set; } = default!;
+
+    [Inject]
+    private NavigationManager Nav { get; set; } = default!;
+
+    private void NavigateToMeeting()
+    {
+        Nav.NavigateTo($"/meeting/{Meeting.MeetingId}");
+    }
+
+    private string FormatDate(DateTime date) =>
+        date.ToLocalTime().ToString("MMM dd, yyyy • h:mm tt");
+
+    private string FormatDuration(int? seconds)
+    {
+        if (seconds == null || seconds == 0) return "—";
+        var ts = TimeSpan.FromSeconds(seconds.Value);
+        return ts.Hours > 0 ? $"{ts.Hours}h {ts.Minutes}m" : $"{ts.Minutes}m";
+    }
+
+    private Color GetPlatformColor() => Meeting.Platform?.ToLower() switch
+    {
+        "teams" => Color.Primary,
+        "zoom" => Color.Info,
+        "google-meet" => Color.Success,
+        _ => Color.Default
+    };
+}

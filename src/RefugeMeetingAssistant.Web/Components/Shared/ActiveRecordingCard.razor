@@ -1,0 +1,86 @@
+@* ActiveRecordingCard.razor - Active meeting display with MudBlazor *@
+
+@implements IDisposable
+
+<MudPaper Class="d-flex justify-space-between align-center pa-3 mb-2" Elevation="0"
+          Style="background: transparent; border: 1px solid #fecaca; border-radius: 8px;">
+    <div>
+        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">
+            <span class="recording-indicator mr-2"></span>
+            @(Meeting.Title ?? "Untitled Meeting")
+        </MudText>
+        <MudText Typo="Typo.caption" Color="Color.Secondary">
+            Started @FormatStartTime()
+            @if (elapsedTime != null)
+            {
+                <span style="color: #dc2626; font-weight: 700;" class="ml-2">@FormatElapsed()</span>
+            }
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+               OnClick="HandleStop" Disabled="@isStopping"
+               StartIcon="@Icons.Material.Filled.Stop">
+        @if (isStopping)
+        {
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-1" />
+        }
+        Stop Recording
+    </MudButton>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired]
+    public MeetingDto Meeting { get; set; } = default!;
+
+    [Parameter]
+    public EventCallback<Guid> OnStop { get; set; }
+
+    private bool isStopping = false;
+    private TimeSpan? elapsedTime;
+    private System.Threading.Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        UpdateElapsed();
+        _timer = new System.Threading.Timer(_ =>
+        {
+            UpdateElapsed();
+            InvokeAsync(StateHasChanged);
+        }, null, 1000, 1000);
+    }
+
+    private void UpdateElapsed()
+    {
+        if (Meeting.StartedAt.HasValue)
+        {
+            elapsedTime = DateTime.UtcNow - Meeting.StartedAt.Value.ToUniversalTime();
+        }
+    }
+
+    private string FormatStartTime()
+    {
+        if (Meeting.StartedAt == null) return "—";
+        return Meeting.StartedAt.Value.ToLocalTime().ToString("h:mm tt");
+    }
+
+    private string FormatElapsed()
+    {
+        if (elapsedTime == null) return "";
+        var ts = elapsedTime.Value;
+        if (ts.Hours > 0) return $"{ts.Hours}h {ts.Minutes}m {ts.Seconds}s";
+        if (ts.Minutes > 0) return $"{ts.Minutes}m {ts.Seconds}s";
+        return $"{ts.Seconds}s";
+    }
+
+    private async Task HandleStop()
+    {
+        isStopping = true;
+        await OnStop.InvokeAsync(Meeting.MeetingId);
+        isStopping = false;
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+    }
+}

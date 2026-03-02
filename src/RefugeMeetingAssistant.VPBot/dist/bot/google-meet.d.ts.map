@@ -1,0 +1,1 @@
+{"version":3,"file":"google-meet.d.ts","sourceRoot":"","sources":["../../src/bot/google-meet.ts"],"names":[],"mappings":"AAAA;;GAEG;AAEH,OAAO,EAAE,IAAI,EAAE,MAAM,YAAY,CAAC;AAElC,qBAAa,iBAAiB;WACf,IAAI,CAAC,IAAI,EAAE,IAAI,EAAE,OAAO,EAAE,MAAM,GAAG,OAAO,CAAC,IAAI,CAAC;CAG9D"}

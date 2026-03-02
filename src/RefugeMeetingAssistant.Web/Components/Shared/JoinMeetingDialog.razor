@@ -1,0 +1,74 @@
+@* JoinMeetingDialog.razor — MudBlazor dialog for joining meetings *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.SmartToy" Class="mr-2" /> Join a Meeting
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="meetingUrl" Label="Meeting URL" Required="true" RequiredError="Meeting URL is required"
+                      Placeholder="https://teams.microsoft.com/l/meetup-join/..."
+                      HelperText="Paste a Microsoft Teams, Zoom, or Google Meet URL"
+                      Variant="Variant.Outlined" Class="mb-4" InputType="InputType.Url"
+                      Error="@urlError" ErrorText="Please enter a valid meeting URL." />
+        <MudTextField @bind-Value="meetingTitle" Label="Meeting Title (optional)"
+                      Placeholder="e.g., Budget Planning Q1"
+                      Variant="Variant.Outlined" />
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-3">@errorMessage</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Text">Cancel</MudButton>
+        <MudButton OnClick="Submit" Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@isSubmitting" StartIcon="@Icons.Material.Filled.RocketLaunch">
+            @if (isSubmitting)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                <text>Sending Bot...</text>
+            }
+            else
+            {
+                <text>Send Bot to Meeting</text>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private string meetingUrl = "";
+    private string meetingTitle = "";
+    private bool isSubmitting = false;
+    private bool urlError = false;
+    private string errorMessage = "";
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Submit()
+    {
+        errorMessage = "";
+        urlError = false;
+
+        if (string.IsNullOrWhiteSpace(meetingUrl))
+        {
+            urlError = true;
+            return;
+        }
+
+        if (!Uri.TryCreate(meetingUrl.Trim(), UriKind.Absolute, out var uri)
+            || (uri.Scheme != "https" && uri.Scheme != "http"))
+        {
+            urlError = true;
+            errorMessage = "Please enter a valid URL starting with https://";
+            return;
+        }
+
+        var title = string.IsNullOrWhiteSpace(meetingTitle) ? null : meetingTitle.Trim();
+        MudDialog.Close(DialogResult.Ok<(string, string?)>((meetingUrl.Trim(), title)));
+    }
+}

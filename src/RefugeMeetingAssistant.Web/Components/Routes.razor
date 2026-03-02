@@ -1,0 +1,28 @@
+@using Microsoft.AspNetCore.Components.Authorization
+
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Program).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    <div class="container text-center p-5">
+                        <h2>🔒 Sign In Required</h2>
+                        <p class="text-muted">Please sign in to access the Meeting Assistant.</p>
+                        <a href="/auth/dev-login" class="btn btn-primary btn-lg">
+                            🔑 Sign In with Microsoft
+                        </a>
+                    </div>
+                </NotAuthorized>
+                <Authorizing>
+                    <div class="text-center p-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Authenticating...</span>
+                        </div>
+                        <p class="mt-2">Authenticating...</p>
+                    </div>
+                </Authorizing>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+    </Router>
+</CascadingAuthenticationState>

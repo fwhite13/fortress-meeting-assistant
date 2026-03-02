@@ -1,0 +1,332 @@
+@page "/"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject MeetingApiClient Api
+@inject NavigationManager Nav
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Dashboard — FIRM</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-4">
+    @* Page Header *@
+    <div class="d-flex justify-space-between align-center mb-6" style="flex-wrap: wrap; gap: 8px;">
+        <div>
+            <MudText Typo="Typo.h4">
+                <MudIcon Icon="@Icons.Material.Filled.Assignment" Class="mr-2" Style="vertical-align: middle;" />My Meetings
+            </MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                Manage your meeting recordings, transcripts, and summaries
+            </MudText>
+        </div>
+        <div class="d-flex gap-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SmartToy"
+                       OnClick="ShowJoinModal">
+                Join Meeting
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" Href="/settings"
+                       StartIcon="@Icons.Material.Filled.Settings">
+                Settings
+            </MudButton>
+        </div>
+    </div>
+
+    @* Active Recordings Section *@
+    @if (activeRecordings.Any())
+    {
+        <MudPaper Class="pa-4 mb-4" Style="background: #fef2f2; border: 1px solid #fecaca;" Elevation="0">
+            <div class="d-flex align-center mb-3">
+                <MudText Typo="Typo.h6" Class="mr-2">Active Recordings</MudText>
+                <MudChip T="string" Color="Color.Error" Size="Size.Small">@activeRecordings.Count active</MudChip>
+            </div>
+            @foreach (var recording in activeRecordings)
+            {
+                <ActiveRecordingCard Meeting="@recording" OnStop="HandleStopRecording" />
+            }
+        </MudPaper>
+    }
+
+    @* Stats Row *@
+    <MudGrid Class="mb-4" Spacing="3">
+        <MudItem xs="6" md="3">
+            <MudPaper Class="pa-4 d-flex flex-column align-center" Elevation="1">
+                <MudIcon Icon="@Icons.Material.Filled.Groups" Color="Color.Default" Size="Size.Large" />
+                <MudText Typo="Typo.h4">@totalMeetings</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Total Meetings</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="6" md="3">
+            <MudPaper Class="pa-4 d-flex flex-column align-center" Elevation="1">
+                <MudIcon Icon="@Icons.Material.Filled.FiberManualRecord" Color="Color.Error" Size="Size.Large" />
+                <MudText Typo="Typo.h4" Style="color: #dc2626;">@activeRecordings.Count</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Active Now</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="6" md="3">
+            <MudPaper Class="pa-4 d-flex flex-column align-center" Elevation="1">
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Large" />
+                <MudText Typo="Typo.h4" Style="color: #059669;">@completedMeetings</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Completed</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="6" md="3">
+            <MudPaper Class="pa-4 d-flex flex-column align-center" Elevation="1">
+                <MudIcon Icon="@Icons.Material.Filled.Assignment" Color="Color.Primary" Size="Size.Large" />
+                <MudText Typo="Typo.h4">@totalActionItems</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Pending Actions</MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    @* Error Banner *@
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" 
+                  Style="border-left: 4px solid var(--color-warning); background: var(--color-warning-bg); border-radius: var(--radius-md); margin-bottom: var(--space-4);"
+                  ShowCloseIcon="true" CloseIconClicked="() => errorMessage = null">
+            @errorMessage
+        </MudAlert>
+    }
+
+    @* Success Banner *@
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <MudAlert Severity="Severity.Success" Class="mb-4" CloseIconClicked="() => successMessage = null" ShowCloseIcon="true">
+            @successMessage
+        </MudAlert>
+    }
+
+    @* Meetings List *@
+    @if (isLoading)
+    {
+        <div class="d-flex flex-column align-center pa-8">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-3">Loading meetings...</MudText>
+        </div>
+    }
+    else if (meetings.Count == 0)
+    {
+        <div style="display: flex; flex-direction: column; align-items: center; padding: var(--space-8); text-align: center;">
+            <MudIcon Icon="@Icons.Material.Filled.CalendarToday"
+                     Style="font-size: 48px; color: var(--color-text-tertiary); margin-bottom: var(--space-3);" />
+            <MudText Typo="Typo.h6" Style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">
+                No meetings yet
+            </MudText>
+            <MudText Typo="Typo.body2" Style="color: var(--color-text-secondary); margin-bottom: var(--space-4);">
+                Submit a Teams, Zoom, or Google Meet URL to get started!
+            </MudText>
+        </div>
+    }
+    else
+    {
+        <MudPaper Elevation="1" Style="overflow: hidden;">
+            <MudTable Items="@meetings" Hover="true" Breakpoint="Breakpoint.Sm"
+                      RowClass="cursor-pointer" OnRowClick="@((TableRowClickEventArgs<MeetingDto> args) => NavigateToMeeting(args.Item))">
+                <HeaderContent>
+                    <MudTh>Meeting</MudTh>
+                    <MudTh>Platform</MudTh>
+                    <MudTh>Status</MudTh>
+                    <MudTh>Started</MudTh>
+                    <MudTh>Duration</MudTh>
+                    <MudTh>Actions</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Meeting">
+                        <MudText Typo="Typo.body1" Style="font-weight: 600;">
+                            @(context.Title ?? "Untitled Meeting")
+                        </MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Platform">
+                        @if (!string.IsNullOrEmpty(context.Platform))
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="@GetPlatformColor(context.Platform)">
+                                @context.Platform
+                            </MudChip>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Status">
+                        <MeetingStatusBadge Status="@context.Status" />
+                    </MudTd>
+                    <MudTd DataLabel="Started">
+                        <MudText Typo="Typo.body2">@context.CreatedAt.ToLocalTime().ToString("MMM dd, h:mm tt")</MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Duration">
+                        <MudText Typo="Typo.body2">@FormatDuration(context.DurationSeconds)</MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Actions">
+                        <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
+                                       Color="Color.Primary" Href="@($"/meeting/{context.MeetingId}")" />
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+
+        @if (totalPages > 1)
+        {
+            <div class="d-flex justify-center mt-4">
+                <MudPagination Count="@totalPages" Selected="@currentPage"
+                               SelectedChanged="LoadPage" Color="Color.Primary" />
+            </div>
+        }
+    }
+</MudContainer>
+
+@* Join Meeting Dialog — triggered via DialogService *@
+
+@code {
+    private List<MeetingDto> meetings = new();
+    private List<MeetingDto> activeRecordings = new();
+    private bool isLoading = true;
+    private int currentPage = 1;
+    private int pageSize = 20;
+    private int totalMeetings = 0;
+    private int totalPages = 1;
+    private int completedMeetings = 0;
+    private int totalActionItems = 0;
+    private string? errorMessage;
+    private string? successMessage;
+    private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+
+        // Auto-refresh every 30 seconds
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadData(silent: true);
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task LoadData(bool silent = false)
+    {
+        if (!silent) isLoading = true;
+
+        try
+        {
+            // Load meetings page
+            var response = await Api.GetMeetingsAsync(currentPage, pageSize);
+            if (response != null)
+            {
+                var allMeetings = response.Meetings ?? new();
+                meetings = allMeetings
+                    .Where(m => m.Status is not ("joining" or "recording"))
+                    .ToList();
+                activeRecordings = allMeetings
+                    .Where(m => m.Status is "joining" or "recording")
+                    .ToList();
+                totalMeetings = response.TotalCount;
+                totalPages = Math.Max(1, (int)Math.Ceiling((double)response.TotalCount / pageSize));
+                completedMeetings = allMeetings.Count(m => m.Status == "completed");
+            }
+
+            // Load action items count
+            try
+            {
+                var actionItems = await Api.GetActionItemsAsync(completed: false);
+                totalActionItems = actionItems?.Count ?? 0;
+            }
+            catch
+            {
+                totalActionItems = 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!silent)
+            {
+                errorMessage = $"Failed to load meetings: {ex.Message}";
+                meetings = new();
+                activeRecordings = new();
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadPage(int page)
+    {
+        currentPage = page;
+        await LoadData();
+    }
+
+    private async Task ShowJoinModal()
+    {
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<JoinMeetingDialog>("Join a Meeting", options);
+        var result = await dialog.Result;
+
+        if (result != null && !result.Canceled && result.Data is ValueTuple<string, string?> data)
+        {
+            await HandleJoinMeeting(data);
+        }
+    }
+
+    private async Task HandleJoinMeeting((string Url, string? Title) args)
+    {
+        try
+        {
+            var result = await Api.JoinMeetingAsync(args.Url, args.Title);
+            Snackbar.Add($"✅ Bot dispatched! Meeting ID: {result?.MeetingId}", Severity.Success);
+            await LoadData();
+
+            // Navigate to the meeting detail if we got an ID
+            if (result?.MeetingId != null && result.MeetingId != Guid.Empty)
+            {
+                Nav.NavigateTo($"/meeting/{result.MeetingId}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to join meeting: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task HandleStopRecording(Guid meetingId)
+    {
+        try
+        {
+            await Api.StopMeetingAsync(meetingId);
+            Snackbar.Add("Recording stopped. Meeting is now processing...", Severity.Success);
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to stop recording: {ex.Message}";
+        }
+    }
+
+    private void NavigateToMeeting(MeetingDto? meeting)
+    {
+        if (meeting != null)
+            Nav.NavigateTo($"/meeting/{meeting.MeetingId}");
+    }
+
+    private Color GetPlatformColor(string? platform) => platform?.ToLower() switch
+    {
+        "teams" => Color.Primary,
+        "zoom" => Color.Info,
+        "google-meet" => Color.Success,
+        _ => Color.Default
+    };
+
+    private string FormatDuration(int? seconds)
+    {
+        if (seconds == null || seconds == 0) return "—";
+        var ts = TimeSpan.FromSeconds(seconds.Value);
+        return ts.Hours > 0 ? $"{ts.Hours}h {ts.Minutes}m" : $"{ts.Minutes}m";
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

@@ -1,0 +1,18 @@
+@* JoinMeetingModal.razor — DEPRECATED: Replaced by JoinMeetingDialog.razor (MudDialog).
+   Kept as stub to avoid compile errors from any remaining references. *@
+
+@if (IsVisible)
+{
+    @* Legacy modal — should not render. Use JoinMeetingDialog via DialogService instead. *@
+}
+
+@code {
+    [Parameter]
+    public bool IsVisible { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    [Parameter]
+    public EventCallback<(string Url, string? Title)> OnSubmit { get; set; }
+}

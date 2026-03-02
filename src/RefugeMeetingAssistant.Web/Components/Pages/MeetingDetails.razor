@@ -1,0 +1,483 @@
+@page "/meeting/{MeetingId:guid}"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject MeetingApiClient Api
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Meeting Details — FIRM</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-4">
+    @if (isLoading)
+    {
+        <div class="d-flex flex-column align-center pa-8">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-3">Loading meeting details...</MudText>
+        </div>
+    }
+    else if (meeting == null)
+    {
+        <MudPaper Class="pa-8 d-flex flex-column align-center" Elevation="0">
+            <MudText Typo="Typo.h5">Meeting not found</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">This meeting may have been deleted.</MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/" StartIcon="@Icons.Material.Filled.ArrowBack">
+                Back to Dashboard
+            </MudButton>
+        </MudPaper>
+    }
+    else
+    {
+        @* Breadcrumb *@
+        <MudBreadcrumbs Items="_breadcrumbs" Class="mb-3 pa-0" Style="background: transparent;" />
+
+        @* Header *@
+        <div class="d-flex justify-space-between align-start mb-4" style="flex-wrap: wrap; gap: 8px;">
+            <div>
+                <MudText Typo="Typo.h4" Class="mb-2">
+                    @(meeting.Title ?? "Untitled Meeting")
+                </MudText>
+                <div class="d-flex flex-wrap gap-2 align-center">
+                    <MeetingStatusBadge Status="@meeting.Status" />
+                    @if (!string.IsNullOrEmpty(meeting.Platform))
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="@GetPlatformColor()">@meeting.Platform</MudChip>
+                    }
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        <MudIcon Icon="@Icons.Material.Filled.CalendarToday" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />@meeting.CreatedAt.ToLocalTime().ToString("MMMM dd, yyyy 'at' h:mm tt")
+                    </MudText>
+                    @if (meeting.DurationSeconds > 0)
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            <MudIcon Icon="@Icons.Material.Filled.Timer" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />@FormatDuration(meeting.DurationSeconds)
+                        </MudText>
+                    }
+                    @if (meeting.ParticipantCount > 0)
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            <MudIcon Icon="@Icons.Material.Filled.Group" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />@meeting.ParticipantCount participants
+                        </MudText>
+                    }
+                </div>
+                @if (meeting.Summary?.Participants?.Any() == true)
+                {
+                    <div class="mt-2 d-flex flex-wrap gap-1 align-center">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Participants: </MudText>
+                        @foreach (var participant in meeting.Summary.Participants)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@participant</MudChip>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="d-flex gap-2">
+                @if (meeting.Status is "recording" or "joining")
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="StopMeeting"
+                               StartIcon="@Icons.Material.Filled.Stop">
+                        Stop Recording
+                    </MudButton>
+                }
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" OnClick="DeleteMeeting"
+                           StartIcon="@Icons.Material.Filled.Delete">
+                    Delete
+                </MudButton>
+            </div>
+        </div>
+
+        @* Processing state *@
+        @if (meeting.Status is "processing" or "transcribing" or "summarizing")
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-4" Icon="@Icons.Material.Filled.HourglassTop">
+                @(meeting.Status switch {
+                    "transcribing" => "Transcribing audio... This may take a few minutes.",
+                    "summarizing" => "Generating AI summary...",
+                    _ => "Processing meeting... Please check back shortly."
+                })
+            </MudAlert>
+        }
+
+        @* Error state *@
+        @if (!_dismissRecordingError && meeting.Status is "error" or "failed")
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true"
+                      ShowCloseIcon="true" CloseIconClicked="@(() => _dismissRecordingError = true)"
+                      Style="border-left: 4px solid var(--color-warning); background: var(--color-warning-bg); border-radius: var(--radius-md); margin-bottom: var(--space-4);">
+                <strong>Recording failed.</strong>
+                @if (!string.IsNullOrEmpty(meeting.ErrorMessage))
+                {
+                    <span> @meeting.ErrorMessage</span>
+                }
+            </MudAlert>
+        }
+
+        @* Content Tabs *@
+        <MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true"
+                 Color="Color.Primary" SliderColor="Color.Secondary">
+            <MudTabPanel Icon="@Icons.Material.Filled.Article" Text="Summary">
+                @if (meeting.Summary != null)
+                {
+                    @* Overview *@
+                    <MudPaper Class="pa-4 mb-3" Elevation="0" Style="background: #f8f9fa;">
+                        <MudText Typo="Typo.h6" Class="mb-2">
+                            <MudIcon Icon="@Icons.Material.Filled.Summarize" Class="mr-2" Style="vertical-align: middle;" />Overview
+                        </MudText>
+                        <MudText Typo="Typo.body1" Style="white-space: pre-wrap;">@meeting.Summary.Overview</MudText>
+                    </MudPaper>
+
+                    @* Key Decisions *@
+                    @if (meeting.Summary.KeyDecisions?.Any() == true)
+                    {
+                        <MudPaper Class="pa-4 mb-3" Elevation="0" Style="background: #f8f9fa;">
+                            <MudText Typo="Typo.h6" Class="mb-2">
+                                <MudIcon Icon="@Icons.Material.Filled.Flag" Class="mr-2" Style="vertical-align: middle;" />Key Decisions
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                @foreach (var decision in meeting.Summary.KeyDecisions)
+                                {
+                                    <MudListItem T="string" Icon="@Icons.Material.Filled.CheckCircleOutline" IconColor="Color.Success">
+                                        @decision
+                                    </MudListItem>
+                                }
+                            </MudList>
+                        </MudPaper>
+                    }
+
+                    @* Key Topics *@
+                    @if (meeting.Summary.KeyTopics?.Any() == true)
+                    {
+                        <MudPaper Class="pa-4 mb-3" Elevation="0" Style="background: #f8f9fa;">
+                            <MudText Typo="Typo.h6" Class="mb-2">
+                                <MudIcon Icon="@Icons.Material.Filled.Forum" Class="mr-2" Style="vertical-align: middle;" />Topics Discussed
+                            </MudText>
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var topic in meeting.Summary.KeyTopics)
+                                {
+                                    <MudChip T="string" Color="Color.Info" Variant="Variant.Filled" Size="Size.Medium">@topic</MudChip>
+                                }
+                            </div>
+                        </MudPaper>
+                    }
+
+                    @* Open Questions *@
+                    @if (meeting.Summary.OpenQuestions?.Any() == true)
+                    {
+                        <MudPaper Class="pa-4 mb-3" Elevation="0" Style="background: #f8f9fa;">
+                            <MudText Typo="Typo.h6" Class="mb-2">
+                                <MudIcon Icon="@Icons.Material.Filled.HelpOutline" Class="mr-2" Style="vertical-align: middle;" />Open Questions
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                @foreach (var question in meeting.Summary.OpenQuestions)
+                                {
+                                    <MudListItem T="string" Icon="@Icons.Material.Filled.HelpOutline" IconColor="Color.Warning">
+                                        @question
+                                    </MudListItem>
+                                }
+                            </MudList>
+                        </MudPaper>
+                    }
+
+                    @* Action Items from Summary *@
+                    @if (meeting.Summary.ActionItems?.Any() == true)
+                    {
+                        <MudPaper Class="pa-4 mb-3" Elevation="0" Style="background: #f8f9fa;">
+                            <MudText Typo="Typo.h6" Class="mb-2">
+                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="mr-2" Style="vertical-align: middle;" />Action Items
+                            </MudText>
+                            <MudTable Items="@meeting.Summary.ActionItems" Hover="true" Dense="true" Elevation="0">
+                                <HeaderContent>
+                                    <MudTh>Action Item</MudTh>
+                                    <MudTh Style="width: 150px;">Owner</MudTh>
+                                    <MudTh Style="width: 120px;">Due Date</MudTh>
+                                    <MudTh Style="width: 80px;">Done</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd DataLabel="Action">@context.Description</MudTd>
+                                    <MudTd DataLabel="Owner">
+                                        @if (!string.IsNullOrEmpty(context.Owner))
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Default">@context.Owner</MudChip>
+                                        }
+                                        else
+                                        {
+                                            <MudText Typo="Typo.body2" Color="Color.Secondary">—</MudText>
+                                        }
+                                    </MudTd>
+                                    <MudTd DataLabel="Due">@(context.DueDate?.ToString("MMM dd, yyyy") ?? "—")</MudTd>
+                                    <MudTd DataLabel="Done">
+                                        <MudCheckBox T="bool" Value="@context.IsCompleted"
+                                                     ValueChanged="@(_ => ToggleActionItem(context))" Color="Color.Primary" />
+                                    </MudTd>
+                                </RowTemplate>
+                            </MudTable>
+                        </MudPaper>
+                    }
+
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        Generated by @(meeting.Summary.ModelId ?? "AI") on @meeting.Summary.CreatedAt.ToLocalTime().ToString("g")
+                    </MudText>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Info">
+                        <strong>No summary available yet.</strong>
+                        @if (meeting.Status is "transcribing" or "summarizing" or "processing")
+                        {
+                            <text> Summary is being generated...</text>
+                        }
+                        else if (meeting.Status is "recording" or "joining")
+                        {
+                            <text> Meeting is still in progress.</text>
+                        }
+                        else
+                        {
+                            <text> Summary will appear here once the meeting is processed.</text>
+                        }
+                    </MudAlert>
+                }
+            </MudTabPanel>
+
+            <MudTabPanel Icon="@Icons.Material.Filled.TextSnippet" Text="Transcript">
+                @if (meeting.Transcript != null)
+                {
+                    <MudPaper Class="pa-4" Elevation="0">
+                        <div class="d-flex justify-space-between align-center mb-3">
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                @(meeting.Transcript.Speakers?.Count ?? 0) speakers
+                                · @(meeting.Transcript.SegmentCount ?? 0) segments
+                            </MudText>
+                            <MudTextField @bind-Value="transcriptSearch" Placeholder="Search transcript..."
+                                          Variant="Variant.Outlined" Adornment="Adornment.Start"
+                                          AdornmentIcon="@Icons.Material.Filled.Search"
+                                          Immediate="true" Class="ml-4" Style="max-width: 300px;" />
+                        </div>
+                        <MudDivider Class="mb-3" />
+                        <div style="max-height: 600px; overflow-y: auto;">
+                            @if (string.IsNullOrWhiteSpace(transcriptSearch))
+                            {
+                                <pre class="transcript-text">@meeting.Transcript.FullText</pre>
+                            }
+                            else
+                            {
+                                <pre class="transcript-text">@((MarkupString)HighlightSearch(meeting.Transcript.FullText, transcriptSearch))</pre>
+                            }
+                        </div>
+                    </MudPaper>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Info">
+                        <strong>No transcript available yet.</strong>
+                        @if (meeting.Status is "recording" or "joining")
+                        {
+                            <text> Transcript will be available after the recording ends.</text>
+                        }
+                        else if (meeting.Status is "transcribing")
+                        {
+                            <text> Audio is being transcribed...</text>
+                        }
+                    </MudAlert>
+                }
+            </MudTabPanel>
+
+            <MudTabPanel Icon="@Icons.Material.Filled.AssignmentTurnedIn" Text="@($"Action Items ({meeting.ActionItems?.Count ?? 0})")">
+                @if (meeting.ActionItems?.Any() == true)
+                {
+                    <MudTable Items="@meeting.ActionItems" Hover="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh Style="width: 50px;"></MudTh>
+                            <MudTh>Description</MudTh>
+                            <MudTh Style="width: 150px;">Owner</MudTh>
+                            <MudTh Style="width: 120px;">Due Date</MudTh>
+                            <MudTh Style="width: 120px;">Created</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>
+                                <MudCheckBox T="bool" Value="@context.IsCompleted"
+                                             ValueChanged="@(_ => ToggleActionItem(context))" Color="Color.Primary" />
+                            </MudTd>
+                            <MudTd DataLabel="Description">
+                                <MudText Typo="Typo.body1"
+                                         Style="@(context.IsCompleted ? "text-decoration: line-through; opacity: 0.6;" : "")">
+                                    @context.Description
+                                </MudText>
+                            </MudTd>
+                            <MudTd DataLabel="Owner">
+                                @if (!string.IsNullOrEmpty(context.Owner))
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Default">@context.Owner</MudChip>
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">Unassigned</MudText>
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Due">
+                                @if (context.DueDate.HasValue)
+                                {
+                                    <MudText Typo="Typo.body2"
+                                             Style="@(context.DueDate < DateTime.Now && !context.IsCompleted ? "color: #dc2626; font-weight: 700;" : "")">
+                                        @context.DueDate.Value.ToString("MMM dd")
+                                    </MudText>
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">—</MudText>
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Created">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                    @context.CreatedAt.ToLocalTime().ToString("MMM dd")
+                                </MudText>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Info">
+                        No action items extracted from this meeting.
+                    </MudAlert>
+                }
+            </MudTabPanel>
+        </MudTabs>
+    }
+</MudContainer>
+
+@code {
+    [Parameter]
+    public Guid MeetingId { get; set; }
+
+    private MeetingDetailDto? meeting;
+    private bool isLoading = true;
+    private bool _dismissRecordingError = false;
+    private string transcriptSearch = "";
+    private System.Threading.Timer? _refreshTimer;
+    private List<BreadcrumbItem> _breadcrumbs = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMeeting();
+        UpdateBreadcrumbs();
+
+        // Auto-refresh if meeting is active/processing
+        if (meeting?.Status is "joining" or "recording" or "processing" or "transcribing" or "summarizing")
+        {
+            _refreshTimer = new System.Threading.Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadMeeting();
+                    StateHasChanged();
+
+                    // Stop refreshing when complete
+                    if (meeting?.Status is "completed" or "error" or "failed")
+                    {
+                        _refreshTimer?.Dispose();
+                        _refreshTimer = null;
+                    }
+                });
+            }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        }
+    }
+
+    private void UpdateBreadcrumbs()
+    {
+        _breadcrumbs = new List<BreadcrumbItem>
+        {
+            new("Dashboard", href: "/", icon: Icons.Material.Filled.Home),
+            new(meeting?.Title ?? "Meeting", href: null, disabled: true)
+        };
+    }
+
+    private async Task LoadMeeting()
+    {
+        try
+        {
+            meeting = await Api.GetMeetingAsync(MeetingId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading meeting: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task StopMeeting()
+    {
+        try
+        {
+            await Api.StopMeetingAsync(MeetingId);
+            Snackbar.Add("Recording stopped.", Severity.Success);
+            await LoadMeeting();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error stopping meeting: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task DeleteMeeting()
+    {
+        try
+        {
+            await Api.DeleteMeetingAsync(MeetingId);
+            Snackbar.Add("Meeting deleted.", Severity.Info);
+            Nav.NavigateTo("/");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error deleting meeting: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ToggleActionItem(ActionItemDto item)
+    {
+        try
+        {
+            await Api.UpdateActionItemAsync(item.ActionItemId, !item.IsCompleted);
+            await LoadMeeting();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error toggling action item: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private Color GetPlatformColor() => meeting?.Platform?.ToLower() switch
+    {
+        "teams" => Color.Primary,
+        "zoom" => Color.Info,
+        "google-meet" => Color.Success,
+        _ => Color.Default
+    };
+
+    private string FormatDuration(int? seconds)
+    {
+        if (seconds == null || seconds == 0) return "—";
+        var ts = TimeSpan.FromSeconds(seconds.Value);
+        return ts.Hours > 0 ? $"{ts.Hours}h {ts.Minutes}m" : $"{ts.Minutes}m";
+    }
+
+    private string HighlightSearch(string text, string search)
+    {
+        if (string.IsNullOrWhiteSpace(search)) return System.Net.WebUtility.HtmlEncode(text);
+
+        var escaped = System.Net.WebUtility.HtmlEncode(text);
+        var escapedSearch = System.Net.WebUtility.HtmlEncode(search);
+
+        return escaped.Replace(
+            escapedSearch,
+            $"<mark>{escapedSearch}</mark>",
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

@@ -1,0 +1,20 @@
+# Build outputs
+bin/
+obj/
+
+# Environment files
+.env
+
+# IDE
+.vs/
+.vscode/
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+rag/venv/
+publish/
