@@ -34,11 +34,6 @@ builder.Services.AddDbContextFactory<MeetingAssistantDbContext>(options =>
         new MySqlServerVersion(new Version(8, 0, 28)),
         mysql => mysql.EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null)));
 
-builder.Services.AddDbContext<MeetingAssistantDbContext>(options =>
-    options.UseMySql(mysqlConnectionString,
-        new MySqlServerVersion(new Version(8, 0, 28)),
-        mysql => mysql.EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null)));
-
 // ---- Authentication (Cognito OIDC) ----
 var cognitoAuthority = builder.Configuration["Auth:CognitoAuthority"];
 var cognitoClientId = builder.Configuration["Auth:CognitoClientId"];
