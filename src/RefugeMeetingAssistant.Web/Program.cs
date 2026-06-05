@@ -2,18 +2,17 @@ using Amazon.Batch;
 using Amazon.SQS;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.IdentityModel.Tokens;
 using MudBlazor.Services;
-using System.Security.Claims;
 using MySqlConnector;
 using RefugeMeetingAssistant.Api.Data;
 using RefugeMeetingAssistant.Api.Models;
 using RefugeMeetingAssistant.Api.Services;
 using RefugeMeetingAssistant.Web.Components;
+using RefugeMeetingAssistant.Web.Data;
 using RefugeMeetingAssistant.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -36,68 +35,63 @@ builder.Services.AddDbContextFactory<MeetingAssistantDbContext>(options =>
         new MySqlServerVersion(new Version(8, 0, 28)),
         mysql => mysql.EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null)));
 
-// ---- Authentication (Cognito OIDC via RISE portal) ----
-var cognitoAuthority = builder.Configuration["Auth:CognitoAuthority"];
-var cognitoClientId = builder.Configuration["Auth:CognitoClientId"];
-var cognitoClientSecret = builder.Configuration["Auth:CognitoClientSecret"];
-
+// ---- Authentication — RN is a cookie consumer of RISE portal ----
+// No OIDC here. RISE portal owns Entra SSO and sets .RISE.Session on .refugems.ai.
+// If cookie is missing → redirect to portal.refugems.ai for login.
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
 })
 .AddCookie(options =>
 {
-    options.LoginPath = "/login";
+    options.LoginPath = "/auth/redirect-to-login";
     options.AccessDeniedPath = "/access-denied";
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.SlidingExpiration = true;
-})
-.AddOpenIdConnect(options =>
-{
-    options.Authority = cognitoAuthority;
-    // Guard against null — config injected at runtime via task def / RISE portal SSO
-    options.ClientId = cognitoClientId ?? "not-configured";
-    options.ClientSecret = cognitoClientSecret;
-    options.ResponseType = "code";
-    options.SaveTokens = true;
-    options.GetClaimsFromUserInfoEndpoint = true;
-    options.CallbackPath = "/signin-oidc";
-    options.SignedOutCallbackPath = "/signout-callback-oidc";
-    options.TokenValidationParameters = new TokenValidationParameters
+    options.Cookie.Name = builder.Configuration["Auth__CookieName"] ?? ".RISE.Session";
+    options.Cookie.Domain = builder.Configuration["Auth__CookieDomain"] ?? ".refugems.ai";
+    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    options.Cookie.IsEssential = true;
+    options.Events.OnRedirectToLogin = ctx =>
     {
-        RoleClaimType = "cognito:groups"
-    };
-    options.Events = new OpenIdConnectEvents
-    {
-        OnRedirectToIdentityProvider = ctx =>
+        if (ctx.Request.Path.StartsWithSegments("/api"))
         {
-            if (ctx.ProtocolMessage.RedirectUri?.StartsWith("http://") == true)
-                ctx.ProtocolMessage.RedirectUri = ctx.ProtocolMessage.RedirectUri.Replace("http://", "https://");
-            if (ctx.ProtocolMessage.PostLogoutRedirectUri?.StartsWith("http://") == true)
-                ctx.ProtocolMessage.PostLogoutRedirectUri = ctx.ProtocolMessage.PostLogoutRedirectUri.Replace("http://", "https://");
-            return Task.CompletedTask;
-        },
-        OnTokenValidated = ctx =>
-        {
-            var groups = ctx.Principal?.FindAll("cognito:groups").Select(c => c.Value) ?? [];
-            var identity = ctx.Principal?.Identity as ClaimsIdentity;
-            if (identity != null)
-                foreach (var group in groups)
-                    identity.AddClaim(new Claim(ClaimTypes.Role, group));
+            ctx.Response.StatusCode = 401;
             return Task.CompletedTask;
         }
+        ctx.Response.Redirect(ctx.RedirectUri);
+        return Task.CompletedTask;
     };
-    options.Scope.Clear();
-    options.Scope.Add("openid");
-    options.Scope.Add("email");
-    options.Scope.Add("profile");
 });
 
 builder.Services.AddAuthorization(options =>
 {
     options.FallbackPolicy = options.DefaultPolicy;
 });
+
+// ---- DataProtection — shared key ring with RISE portal (rn_fip DB) ----
+var keyRingCsb = new MySqlConnectionStringBuilder
+{
+    Server = Environment.GetEnvironmentVariable("FORTRESS_DB_HOST") ?? "localhost",
+    Port = uint.Parse(Environment.GetEnvironmentVariable("FORTRESS_DB_PORT") ?? "3306"),
+    UserID = Environment.GetEnvironmentVariable("FORTRESS_DB_USER") ?? "root",
+    Password = Environment.GetEnvironmentVariable("FORTRESS_DB_PASS") ?? "",
+    Database = Environment.GetEnvironmentVariable("FIP_KEYRING_DB_NAME") ?? "rn_fip",
+    ConnectionTimeout = 10
+};
+
+builder.Services.AddDbContext<DataProtectionKeyContext>(options =>
+    options.UseMySql(keyRingCsb.ConnectionString,
+        new MySqlServerVersion(new Version(8, 0, 28)),
+        mysql => mysql.EnableRetryOnFailure(3)));
+
+// Consumer only — RISE portal creates/rotates keys, RN just reads them
+builder.Services.AddDataProtection()
+    .PersistKeysToDbContext<DataProtectionKeyContext>()
+    .SetApplicationName(builder.Configuration["DataProtection__ApplicationName"] ?? "RISE")
+    .DisableAutomaticKeyGeneration();
 
 // ---- MudBlazor ----
 builder.Services.AddMudServices();
@@ -183,18 +177,20 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 // ---- Auth Endpoints ----
+
+// Redirect unauthenticated users to RISE portal for login
+app.MapGet("/auth/redirect-to-login", (HttpContext ctx, IConfiguration config) =>
+{
+    var portalUrl = config["FIP__LoginUrl"] ?? "https://portal.refugems.ai";
+    var returnUrl = Uri.EscapeDataString($"{ctx.Request.Scheme}://{ctx.Request.Host}/");
+    return Results.Redirect($"{portalUrl}?returnUrl={returnUrl}");
+}).AllowAnonymous();
+
 app.MapGet("/auth/logout", async (HttpContext ctx) =>
 {
     await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-    await ctx.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme);
-}).AllowAnonymous();
-
-app.MapGet("/auth/dev-login", async (HttpContext ctx) =>
-{
-    await ctx.ChallengeAsync(OpenIdConnectDefaults.AuthenticationScheme, new AuthenticationProperties
-    {
-        RedirectUri = "/"
-    });
+    var portalUrl = ctx.RequestServices.GetRequiredService<IConfiguration>()["FIP__LoginUrl"] ?? "https://portal.refugems.ai";
+    ctx.Response.Redirect(portalUrl);
 }).AllowAnonymous();
 
 // Map API controllers (VP bot needs PATCH /api/meetings/{id}/status)
