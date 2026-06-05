@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.IdentityModel.Tokens;
+using Microsoft.Identity.Web;
 using MudBlazor.Services;
 using MySqlConnector;
 using RefugeMeetingAssistant.Api.Data;
@@ -14,7 +14,6 @@ using RefugeMeetingAssistant.Api.Models;
 using RefugeMeetingAssistant.Api.Services;
 using RefugeMeetingAssistant.Web.Components;
 using RefugeMeetingAssistant.Web.Services;
-using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,72 +35,19 @@ builder.Services.AddDbContextFactory<MeetingAssistantDbContext>(options =>
         new MySqlServerVersion(new Version(8, 0, 28)),
         mysql => mysql.EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null)));
 
-// ---- Authentication (Cognito OIDC) ----
-var cognitoAuthority = builder.Configuration["Auth:CognitoAuthority"];
-var cognitoClientId = builder.Configuration["Auth:CognitoClientId"];
-var cognitoClientSecret = builder.Configuration["Auth:CognitoClientSecret"];
+// ---- Authentication (Entra SSO via Microsoft.Identity.Web) ----
+builder.Services.AddMicrosoftIdentityWebAppAuthentication(builder.Configuration, "AzureAd")
+    .EnableTokenAcquisitionToCallDownstreamApi()
+    .AddInMemoryTokenCaches();
 
-builder.Services.AddAuthentication(options =>
+builder.Services.ConfigureApplicationCookie(options =>
 {
-    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
-})
-.AddCookie(options =>
-{
-    options.LoginPath = "/login";
+    options.LoginPath = "/MicrosoftIdentity/Account/SignIn";
     options.AccessDeniedPath = "/access-denied";
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.SlidingExpiration = true;
-})
-.AddOpenIdConnect(options =>
-{
-    options.Authority = cognitoAuthority;
-    options.ClientId = cognitoClientId ?? "placeholder-not-configured";
-    options.ClientSecret = cognitoClientSecret;
-    options.ResponseType = "code";
-    options.SaveTokens = true;
-    options.GetClaimsFromUserInfoEndpoint = true;
-    options.CallbackPath = "/signin-oidc";
-    options.SignedOutCallbackPath = "/signout-callback-oidc";
-
-    // Map cognito:groups claim to roles
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        RoleClaimType = "cognito:groups"
-    };
-
-    options.Events = new OpenIdConnectEvents
-    {
-        OnRedirectToIdentityProvider = ctx =>
-        {
-            // Force HTTPS redirect URI — always behind ALB TLS termination
-            if (ctx.ProtocolMessage.RedirectUri != null && ctx.ProtocolMessage.RedirectUri.StartsWith("http://"))
-            {
-                ctx.ProtocolMessage.RedirectUri = ctx.ProtocolMessage.RedirectUri.Replace("http://", "https://");
-            }
-            if (ctx.ProtocolMessage.PostLogoutRedirectUri != null && ctx.ProtocolMessage.PostLogoutRedirectUri.StartsWith("http://"))
-            {
-                ctx.ProtocolMessage.PostLogoutRedirectUri = ctx.ProtocolMessage.PostLogoutRedirectUri.Replace("http://", "https://");
-            }
-            return Task.CompletedTask;
-        },
-        OnTokenValidated = ctx =>
-        {
-            var groups = ctx.Principal?.FindAll("cognito:groups").Select(c => c.Value) ?? [];
-            var identity = ctx.Principal?.Identity as ClaimsIdentity;
-            if (identity != null)
-            {
-                foreach (var group in groups)
-                    identity.AddClaim(new Claim(ClaimTypes.Role, group));
-            }
-            return Task.CompletedTask;
-        }
-    };
-
-    options.Scope.Clear();
-    options.Scope.Add("openid");
-    options.Scope.Add("email");
-    options.Scope.Add("profile");
+    options.Cookie.Name = builder.Configuration["Auth__CookieName"] ?? ".RISE.Session";
+    options.Cookie.Domain = builder.Configuration["Auth__CookieDomain"] ?? ".refugems.ai";
 });
 
 builder.Services.AddAuthorization(options =>
