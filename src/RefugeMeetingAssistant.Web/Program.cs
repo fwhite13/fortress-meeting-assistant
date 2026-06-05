@@ -56,7 +56,7 @@ builder.Services.AddAuthentication(options =>
 .AddOpenIdConnect(options =>
 {
     options.Authority = cognitoAuthority;
-    options.ClientId = cognitoClientId;
+    options.ClientId = cognitoClientId ?? "placeholder-not-configured";
     options.ClientSecret = cognitoClientSecret;
     options.ResponseType = "code";
     options.SaveTokens = true;
