@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Amazon.Batch;
 using Amazon.Batch.Model;
 using Microsoft.EntityFrameworkCore;
@@ -27,18 +28,63 @@ public class BatchTranscriptionService
         _logger = logger;
     }
 
-    public async Task<string> SubmitTranscriptionJobAsync(Guid meetingId, string audioS3Key, DateTime? meetingDate = null)
+    public async Task<string> SubmitTranscriptionJobAsync(Guid meetingId, string audioS3Key, DateTime? meetingDate = null, string? creatorEntraOid = null)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
-        var wikiEntries = await db.OrgWikiEntries.ToListAsync();
+        var tenantId = _config["Firm:GraphTenantId"] ?? "";
+        var flatEntries = new List<object>();
 
-        string? wikiJson = null;
-        if (wikiEntries.Count > 0)
+        if (!string.IsNullOrEmpty(tenantId))
         {
-            var flatEntries = wikiEntries.Select(e => new { e.Term, e.Description, e.Source }).ToList();
-            wikiJson = System.Text.Json.JsonSerializer.Serialize(flatEntries);
-            _logger.LogInformation("RN: ORG_WIKI_JSON will contain {Count} entries for meeting {MeetingId}", wikiEntries.Count, meetingId);
+            await using var db = await _dbFactory.CreateDbContextAsync();
+
+            // Read org context (JSON blob keyed by tenant)
+            var orgCtx = await db.FirmOrgContexts
+                .FirstOrDefaultAsync(c => c.EntraTenantId == tenantId);
+            if (orgCtx?.WikiContent != null)
+            {
+                try
+                {
+                    var orgEntries = JsonSerializer.Deserialize<List<OrgContextEntry>>(orgCtx.WikiContent,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (orgEntries != null)
+                        foreach (var e in orgEntries.Where(e => !string.IsNullOrEmpty(e.Term)))
+                            flatEntries.Add(new { e.Term, e.Description, Source = "organization" });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "RN: Failed to parse firm_org_context wiki_content");
+                }
+            }
+
+            // Read personal wiki for the meeting creator
+            if (!string.IsNullOrEmpty(creatorEntraOid))
+            {
+                var userWiki = await db.FirmUserWikis
+                    .FirstOrDefaultAsync(w => w.EntraOid == creatorEntraOid && w.EntraTenantId == tenantId);
+                if (userWiki?.WikiContent != null)
+                {
+                    try
+                    {
+                        var userEntries = JsonSerializer.Deserialize<List<OrgContextEntry>>(userWiki.WikiContent,
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (userEntries != null)
+                            foreach (var e in userEntries.Where(e => !string.IsNullOrEmpty(e.Term)))
+                                flatEntries.Add(new { e.Term, e.Description, Source = "personal" });
+                    }
+                    catch (Exception ex)
+                    {
+                    _logger.LogWarning(ex, "RN: Failed to parse firm_user_wiki wiki_content");
+                    }
+                }
+            }
         }
+
+        string? wikiJson = flatEntries.Count > 0
+            ? JsonSerializer.Serialize(flatEntries)
+            : null;
+
+        if (flatEntries.Count > 0)
+            _logger.LogInformation("RN: ORG_WIKI_JSON will contain {Count} entries for meeting {MeetingId}", flatEntries.Count, meetingId);
 
         var envVars = new List<Amazon.Batch.Model.KeyValuePair>
         {

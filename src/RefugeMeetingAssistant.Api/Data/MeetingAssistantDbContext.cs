@@ -18,6 +18,8 @@ public class MeetingAssistantDbContext : DbContext
     public DbSet<Meeting> Meetings => Set<Meeting>();
     public DbSet<ActionItem> ActionItems => Set<ActionItem>();
     public DbSet<OrgWikiEntry> OrgWikiEntries => Set<OrgWikiEntry>();
+    public DbSet<FirmOrgContext> FirmOrgContexts => Set<FirmOrgContext>();
+    public DbSet<FirmUserWiki> FirmUserWikis => Set<FirmUserWiki>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
