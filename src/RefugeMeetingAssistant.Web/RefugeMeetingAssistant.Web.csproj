@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AWSSDK.Batch" Version="4.0.2.15" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="8.0.*" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.3" />
     <PackageReference Include="MudBlazor" Version="9.0.0" />

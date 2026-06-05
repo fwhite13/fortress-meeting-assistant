@@ -148,6 +148,15 @@ public record BotCommand
     public string Platform { get; init; } = "teams";
 }
 
+// ---- VP Callback ----
+
+public record VpCallbackRequest
+{
+    public Guid MeetingId { get; init; }
+    public string AudioS3Key { get; init; } = string.Empty;
+    public DateTime? MeetingDate { get; init; }
+}
+
 // ---- Health Check ----
 
 public record HealthResponse

@@ -17,6 +17,7 @@ public class MeetingAssistantDbContext : DbContext
     public DbSet<BotConfig> BotConfigs => Set<BotConfig>();
     public DbSet<Meeting> Meetings => Set<Meeting>();
     public DbSet<ActionItem> ActionItems => Set<ActionItem>();
+    public DbSet<OrgWikiEntry> OrgWikiEntries => Set<OrgWikiEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -1,3 +1,4 @@
+using Amazon.Batch;
 using Amazon.SQS;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -9,6 +10,7 @@ using Microsoft.IdentityModel.Tokens;
 using MudBlazor.Services;
 using MySqlConnector;
 using RefugeMeetingAssistant.Api.Data;
+using RefugeMeetingAssistant.Api.Models;
 using RefugeMeetingAssistant.Api.Services;
 using RefugeMeetingAssistant.Web.Components;
 using RefugeMeetingAssistant.Web.Services;
@@ -135,6 +137,8 @@ builder.Services.AddSingleton<IAmazonSQS>(sp =>
     return new AmazonSQSClient();
 });
 
+builder.Services.AddSingleton<IAmazonBatch>(_ => new AmazonBatchClient(Amazon.RegionEndpoint.USEast1));
+
 // ---- LMA Integration ----
 builder.Services.AddHttpClient<LmaClient>(client =>
 {
@@ -150,6 +154,7 @@ builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<BotConfigService>();
 builder.Services.AddScoped<MeetingService>();
 builder.Services.AddSingleton<SqsService>();
+builder.Services.AddScoped<BatchTranscriptionService>();
 
 // Register MeetingApiClient for Blazor pages (still uses HttpClient for internal calls)
 var apiBaseUrl = builder.Configuration["ApiBaseUrl"] ?? "http://localhost:8080";
@@ -204,6 +209,29 @@ app.MapGet("/auth/dev-login", async (HttpContext ctx) =>
 
 // Map API controllers (VP bot needs PATCH /api/meetings/{id}/status)
 app.MapControllers();
+
+// VpCallback: VP bot calls this when recording ends and audio is ready in S3
+app.MapPost("/api/vp/callback", async (
+    VpCallbackRequest req,
+    BatchTranscriptionService batchSvc,
+    IDbContextFactory<MeetingAssistantDbContext> dbFactory,
+    ILogger<Program> logger) =>
+{
+    logger.LogInformation("VpCallback: meeting {MeetingId}, s3Key {Key}", req.MeetingId, req.AudioS3Key);
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var meeting = await db.Meetings.FindAsync(req.MeetingId);
+    if (meeting != null)
+    {
+        meeting.Status = "transcribing";
+        meeting.EndedAt ??= DateTime.UtcNow;
+        meeting.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+    }
+
+    var jobId = await batchSvc.SubmitTranscriptionJobAsync(req.MeetingId, req.AudioS3Key, req.MeetingDate);
+    return Results.Ok(new { jobId, meetingId = req.MeetingId });
+}).AllowAnonymous().DisableAntiforgery();
 
 // Map Razor pages
 app.MapRazorPages();
